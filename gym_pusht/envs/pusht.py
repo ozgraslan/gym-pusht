@@ -144,6 +144,7 @@ class PushTEnv(gym.Env):
         observation_height=96,
         visualization_width=680,
         visualization_height=680,
+        update_angle_first=True,
     ):
         super().__init__()
         # Observations
@@ -155,6 +156,7 @@ class PushTEnv(gym.Env):
         self.observation_height = observation_height
         self.visualization_width = visualization_width
         self.visualization_height = visualization_height
+        self.update_angle_first = update_angle_first
 
         # Initialize spaces
         self._initialize_observation_space()
@@ -219,6 +221,22 @@ class PushTEnv(gym.Env):
                     "agent_pos": spaces.Box(
                         low=np.array([0, 0]),
                         high=np.array([512, 512]),
+                        dtype=np.float64,
+                    ),
+                }
+            )
+        elif self.obs_type == "pixels_state":
+            self.observation_space = spaces.Dict(
+                {
+                    "pixels": spaces.Box(
+                        low=0,
+                        high=255,
+                        shape=(self.observation_height, self.observation_width, 3),
+                        dtype=np.uint8,
+                    ),
+                    "state_full": spaces.Box(
+                        low=np.array([0, 0, -512, -512,  0, 0, 0]),
+                        high=np.array([512, 512, 512, 512, 512, 512, 2 * np.pi]),
                         dtype=np.float64,
                     ),
                 }
@@ -394,6 +412,17 @@ class PushTEnv(gym.Env):
         pixels = self._render()
         if self.obs_type == "pixels":
             return pixels
+
+        elif self.obs_type == "pixels_state":
+            agent_position = np.array(self.agent.position)
+            agent_velocity = np.array(self.agent.velocity)
+            block_position = np.array(self.block.position)
+            block_angle = self.block.angle % (2 * np.pi)
+            return {
+                "pixels": pixels,
+                "state_full": np.concatenate([agent_position, agent_velocity, block_position, [block_angle]], dtype=np.float64),
+            }
+            
         elif self.obs_type == "pixels_agent_pos":
             return {
                 "pixels": pixels,
@@ -457,9 +486,15 @@ class PushTEnv(gym.Env):
         self.agent.position = list(state[:2])
         # Setting angle rotates with respect to center of mass, therefore will modify the geometric position if not
         # the same as CoM. Therefore should theoretically set the angle first. But for compatibility with legacy data,
-        # we do the opposite.
-        self.block.position = list(state[2:4])
-        self.block.angle = state[4]
+        # we do the opposite. 
+        # Added a parameter to choose which one to do first.
+        if self.update_angle_first:
+            self.block.angle = state[4]
+            self.block.position = list(state[2:4])
+        else:
+            self.block.position = list(state[2:4])
+            self.block.angle = state[4]
+
 
         # Run physics to take effect
         self.space.step(self.dt)
