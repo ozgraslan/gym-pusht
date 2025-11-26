@@ -144,7 +144,7 @@ class PushTEnv(gym.Env):
         observation_height=96,
         visualization_width=680,
         visualization_height=680,
-        update_angle_first=True,
+        relative = False,
     ):
         super().__init__()
         # Observations
@@ -156,7 +156,7 @@ class PushTEnv(gym.Env):
         self.observation_height = observation_height
         self.visualization_width = visualization_width
         self.visualization_height = visualization_height
-        self.update_angle_first = update_angle_first
+        self.relative = relative
 
         # Initialize spaces
         self._initialize_observation_space()
@@ -225,6 +225,22 @@ class PushTEnv(gym.Env):
                     ),
                 }
             )
+        elif self.obs_type == "pixels_agent_pos_vel":
+            self.observation_space = spaces.Dict(
+                {
+                    "pixels": spaces.Box(
+                        low=0,
+                        high=255,
+                        shape=(self.observation_height, self.observation_width, 3),
+                        dtype=np.uint8,
+                    ),
+                    "proprio": spaces.Box(
+                        low=np.array([0, 0, -512, -512]),
+                        high=np.array([512, 512, 512, 512]),
+                        dtype=np.float64,
+                    ),
+                }
+            )   
         elif self.obs_type == "pixels_state":
             self.observation_space = spaces.Dict(
                 {
@@ -235,8 +251,8 @@ class PushTEnv(gym.Env):
                         dtype=np.uint8,
                     ),
                     "state_full": spaces.Box(
-                        low=np.array([0, 0, -512, -512,  0, 0, 0]),
-                        high=np.array([512, 512, 512, 512, 512, 512, 2 * np.pi]),
+                        low=np.array([0, 0,  0, 0, 0, -512, -512]),
+                        high=np.array([512, 512, 512, 512, 2 * np.pi, 512, 512]),
                         dtype=np.float64,
                     ),
                 }
@@ -259,6 +275,8 @@ class PushTEnv(gym.Env):
         self.n_contact_points = 0
         n_steps = int(1 / (self.dt * self.control_hz))
         self._last_action = action
+        if self.relative:
+            action = self.agent.position + action
         for _ in range(n_steps):
             # Step PD control
             # self.agent.velocity = self.k_p * (act - self.agent.position)    # P control works too.
@@ -301,7 +319,6 @@ class PushTEnv(gym.Env):
                 ]
             )
         self._set_state(state)
-
         observation = self.get_obs()
         info = self._get_info()
         info["is_success"] = False
@@ -422,13 +439,19 @@ class PushTEnv(gym.Env):
                 "pixels": pixels,
                 "state_full": np.concatenate([agent_position, agent_velocity, block_position, [block_angle]], dtype=np.float64),
             }
-            
         elif self.obs_type == "pixels_agent_pos":
             return {
                 "pixels": pixels,
                 "agent_pos": np.array(self.agent.position),
             }
-
+        elif self.obs_type == "pixels_agent_pos_vel":
+            agent_position = np.array(self.agent.position)
+            agent_velocity = np.array(self.agent.velocity)
+            return {
+                "pixels": pixels,
+                "proprio": np.concatenate([agent_position, agent_velocity], dtype=np.float64),
+            }
+            
     @staticmethod
     def get_goal_pose_body(pose):
         mass = 1
